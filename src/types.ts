@@ -1,15 +1,20 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import type { Elysia } from '.'
-import type { Serve, Server, WebSocketHandler } from 'bun'
+import type { BunFile, Serve, Server, WebSocketHandler } from 'bun'
 
-import type { TSchema, TObject, Static, TAnySchema } from '@sinclair/typebox'
+import type {
+	TSchema,
+	TObject,
+	StaticDecode,
+	TAnySchema
+} from '@sinclair/typebox'
 import type { TypeCheck } from '@sinclair/typebox/compiler'
 
 import type { OpenAPIV3 } from 'openapi-types'
 import type { EventEmitter } from 'eventemitter3'
 
 import type { CookieOptions } from './cookies'
-import type { Context, PreContext } from './context'
+import type { Context, ErrorContext, PreContext } from './context'
 import type {
 	ELYSIA_RESPONSE,
 	InternalServerError,
@@ -109,7 +114,7 @@ export type ElysiaConfig<
 	 * This allows for sending unknown or disallowed properties in the bodies. These will simply be filtered out instead of failing the request.
 	 * This has no effect when the schemas allow additional properties.
 	 * Since this uses dynamic schema it may have an impact on performance. Use with caution.
-	 * 
+	 *
 	 * @default false
 	 */
 	normalize?: boolean
@@ -143,6 +148,10 @@ export type Prettify2<T> = {
 export type Partial2<T> = {
 	[K in keyof T]?: Partial<T[K]>
 }
+
+export type NeverKey<T> = {
+	[K in keyof T]: never
+} & {}
 
 export type Reconcile<A extends Object, B extends Object> = {
 	[key in keyof A as key extends keyof B ? never : key]: A[key]
@@ -198,12 +207,25 @@ export type UnwrapSchema<
 > = undefined extends Schema
 	? unknown
 	: Schema extends TSchema
-	? Static<NonNullable<Schema>>
+	? StaticDecode<NonNullable<Schema>>
 	: Schema extends string
 	? Definitions extends Record<Schema, infer NamedSchema>
 		? NamedSchema
 		: Definitions
 	: unknown
+
+// ? https://developer.mozilla.org/en-US/docs/Web/HTTP/Status#successful_responses
+export type SuccessfulResponse<T = unknown> =
+	| { 200: T }
+	| { 201: T }
+	| { 202: T }
+	| { 203: T }
+	| { 204: T }
+	| { 205: T }
+	| { 206: T }
+	| { 207: T }
+	| { 208: T }
+	| { 226: T }
 
 export interface UnwrapRoute<
 	in out Schema extends InputSchema<any>,
@@ -215,16 +237,15 @@ export interface UnwrapRoute<
 	params: UnwrapSchema<Schema['params'], Definitions>
 	cookie: UnwrapSchema<Schema['cookie'], Definitions>
 	response: Schema['response'] extends TSchema | string
-		? UnwrapSchema<Schema['response'], Definitions>
-		: Schema['response'] extends {
-				200: TAnySchema | string
-		  }
+		? CoExist<UnwrapSchema<Schema['response'], Definitions>, File, BunFile>
+		: Schema['response'] extends SuccessfulResponse<TAnySchema | string>
 		? {
-				[k in keyof Schema['response']]: UnwrapSchema<
-					Schema['response'][k],
-					Definitions
+				[k in keyof Schema['response']]: CoExist<
+					UnwrapSchema<Schema['response'][k], Definitions>,
+					File,
+					BunFile
 				>
-		  } // UnwrapSchema<ObjectValues<Schema['response']>, Definitions>
+		  }
 		: unknown | void
 }
 
@@ -393,9 +414,35 @@ export type Handler<
 	Path extends string = ''
 > = (
 	context: Context<Route, Singleton, Path>
-) => Route['response'] extends { 200: unknown }
+) => Route['response'] extends SuccessfulResponse
 	? Response | MaybePromise<Route['response'][keyof Route['response']]>
 	: Response | MaybePromise<Route['response']>
+
+export type Replace<Original, Target, With> = IsAny<Target> extends true
+	? Original
+	: Original extends Record<string, unknown>
+	? {
+			[K in keyof Original]: Original[K] extends Target
+				? With
+				: Original[K]
+	  }
+	: Original extends Target
+	? With
+	: Original
+
+type IsAny<T> = 0 extends 1 & T ? true : false
+
+export type CoExist<Original, Target, With> = IsAny<Target> extends true
+	? Original
+	: Original extends Record<string, unknown>
+	? {
+			[K in keyof Original]: Original[K] extends Target
+				? Original[K] | With
+				: Original[K]
+	  }
+	: Original extends Target
+	? Original | With
+	: Original
 
 export type InlineHandler<
 	Route extends RouteSchema = {},
@@ -407,9 +454,9 @@ export type InlineHandler<
 	},
 	Path extends string = ''
 > =
-	| ((context: Context<Route, Singleton, Path>) => Route['response'] extends {
-			200: unknown
-	  }
+	| ((
+			context: Context<Route, Singleton, Path>
+	  ) => Route['response'] extends SuccessfulResponse
 			?
 					| Response
 					| MaybePromise<
@@ -427,7 +474,7 @@ export type InlineHandler<
 			: Response | MaybePromise<Route['response']>)
 	| (unknown extends Route['response']
 			? string | number | Object
-			: Route['response'] extends { 200: unknown }
+			: Route['response'] extends SuccessfulResponse
 			? Route['response'][keyof Route['response']]
 			: Route['response'])
 
@@ -607,7 +654,25 @@ export type BodyHandler<
 	},
 	Path extends string = ''
 > = (
-	context: Context<Route, Singleton, Path>,
+	context: Prettify<
+		{
+			contentType: string
+		} & Context<Route, Singleton, Path>
+	>,
+	/**
+	 * @deprecated
+	 *
+	 * use `context.contentType` instead
+	 *
+	 * @example
+	 * ```ts
+	 * new Elysia()
+	 * 	   .onParse(({ contentType, request }) => {
+	 * 		     if (contentType === 'application/json')
+	 * 			     return request.json()
+	 *     })
+	 * ```
+	 */
 	contentType: string
 ) => MaybePromise<any>
 
@@ -626,64 +691,96 @@ export type GracefulHandler<
 > = (data: Instance) => any
 
 export type ErrorHandler<
-	T extends Record<string, Error> = {},
-	Route extends RouteSchema = {},
-	Singleton extends SingletonBase = {
+	in out T extends Record<string, Error> = {},
+	in out Route extends RouteSchema = {},
+	in out Singleton extends SingletonBase = {
 		decorator: {}
 		store: {}
 		derive: {}
 		resolve: {}
+	},
+	// ? scoped
+	in out Ephemeral extends EphemeralType = {
+		derive: {}
+		resolve: {}
+		schema: {}
+	},
+	// ? local
+	in out Volatile extends EphemeralType = {
+		derive: {}
+		resolve: {}
+		schema: {}
 	}
 > = (
-	context: Prettify<
-		Omit<Context<Route, Singleton>, 'error'> &
-			(
-				| {
+	context: ErrorContext<Route, Singleton> &
+		(
+			| Prettify<
+					{
 						request: Request
 						code: 'UNKNOWN'
 						error: Readonly<Error>
 						set: Context['set']
-				  }
-				| {
+					} & Partial<Ephemeral['derive'] & Volatile['derive']> &
+						Partial<Ephemeral['resolve'] & Volatile['resolve']>
+			  >
+			| Prettify<
+					{
 						request: Request
 						code: 'VALIDATION'
 						error: Readonly<ValidationError>
 						set: Context['set']
-				  }
-				| {
+					} & NeverKey<Ephemeral['derive'] & Volatile['derive']> &
+						NeverKey<Ephemeral['resolve'] & Volatile['resolve']>
+			  >
+			| Prettify<
+					{
 						request: Request
 						code: 'NOT_FOUND'
 						error: Readonly<NotFoundError>
 						set: Context['set']
-				  }
-				| {
+					} & NeverKey<Ephemeral['derive'] & Volatile['derive']> &
+						NeverKey<Ephemeral['resolve'] & Volatile['resolve']>
+			  >
+			| Prettify<
+					{
 						request: Request
 						code: 'PARSE'
 						error: Readonly<ParseError>
 						set: Context['set']
-				  }
-				| {
+					} & NeverKey<Ephemeral['derive'] & Volatile['derive']> &
+						NeverKey<Ephemeral['resolve'] & Volatile['resolve']>
+			  >
+			| Prettify<
+					{
 						request: Request
 						code: 'INTERNAL_SERVER_ERROR'
 						error: Readonly<InternalServerError>
 						set: Context['set']
-				  }
-				| {
+					} & Partial<Ephemeral['derive'] & Volatile['derive']> &
+						Partial<Ephemeral['resolve'] & Volatile['resolve']>
+			  >
+			| Prettify<
+					{
 						request: Request
 						code: 'INVALID_COOKIE_SIGNATURE'
 						error: Readonly<InvalidCookieSignature>
 						set: Context['set']
-				  }
-				| {
+					} & NeverKey<Ephemeral['derive'] & Volatile['derive']> &
+						NeverKey<Ephemeral['resolve'] & Volatile['resolve']>
+			  >
+			| Prettify<
+					{
 						[K in keyof T]: {
 							request: Request
 							code: K
 							error: Readonly<T[K]>
 							set: Context['set']
 						}
-				  }[keyof T]
-			)
-	>
+					}[keyof T] &
+						Partial<Ephemeral['derive'] & Volatile['derive']> &
+						Partial<Ephemeral['resolve'] & Volatile['resolve']>
+			  >
+		)
 ) => any | Promise<any>
 
 export type Isolate<T> = {
@@ -826,9 +923,7 @@ export type MacroToProperty<in out T extends BaseMacro> = Prettify<{
 		? T[K] extends (a: infer Params) => any
 			? Params | undefined
 			: T[K]
-		: T[K] extends BaseMacro
-		? MacroToProperty<T[K]>
-		: never
+		: T[K]
 }>
 
 export interface MacroManager<
@@ -920,8 +1015,8 @@ export type CreateEden<
 export type ComposeElysiaResponse<Response, Handle> = Handle extends (
 	...a: any[]
 ) => infer A
-	? _ComposeElysiaResponse<Response, Awaited<A>>
-	: _ComposeElysiaResponse<Response, Awaited<Handle>>
+	? _ComposeElysiaResponse<Response, Replace<Awaited<A>, BunFile, File>>
+	: _ComposeElysiaResponse<Response, Replace<Awaited<Handle>, BunFile, File>>
 
 type _ComposeElysiaResponse<Response, Handle> = Prettify<
 	unknown extends Response
@@ -937,7 +1032,7 @@ type _ComposeElysiaResponse<Response, Handle> = Prettify<
 					? Status
 					: never]: ErrorResponse['response']
 		  }
-		: Response extends { 200: unknown }
+		: Response extends SuccessfulResponse
 		? Response
 		: {
 				200: Response
@@ -1012,6 +1107,32 @@ export type MergeElysiaInstances<
 export type LifeCycleType = 'global' | 'local' | 'scoped'
 
 export type ExcludeElysiaResponse<T> = Exclude<
-	Awaited<T>,
+	undefined extends Awaited<T> ? Partial<Awaited<T>> : Awaited<T>,
 	{ [ELYSIA_RESPONSE]: any }
+>
+
+export type InferContext<
+	T extends Elysia<any, any, any, any, any, any, any, any>,
+	Path extends string = T['_types']['Prefix'],
+	Schema extends RouteSchema = T['_types']['Metadata']['schema']
+> = Context<
+	MergeSchema<Schema, T['_types']['Metadata']['schema']>,
+	T['_types']['Singleton'] & {
+		derive: T['_ephemeral']['derive'] & T['_volatile']['derive']
+		resolve: T['_ephemeral']['resolve'] & T['_volatile']['resolve']
+	},
+	Path
+>
+
+export type InferHandler<
+	T extends Elysia<any, any, any, any, any, any, any, any>,
+	Path extends string = T['_types']['Prefix'],
+	Schema extends RouteSchema = T['_types']['Metadata']['schema']
+> = InlineHandler<
+	MergeSchema<Schema, T['_types']['Metadata']['schema']>,
+	T['_types']['Singleton'] & {
+		derive: T['_ephemeral']['derive'] & T['_volatile']['derive']
+		resolve: T['_ephemeral']['resolve'] & T['_volatile']['resolve']
+	},
+	Path
 >

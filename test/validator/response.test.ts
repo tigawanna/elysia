@@ -311,4 +311,65 @@ describe('Response Validator', () => {
 			}
 		)
 	})
+
+	it('return null with schema', async () => {
+		const app = new Elysia().get('/', () => null, {
+			response: t.Union([
+				t.Null(),
+				t.Object({
+					name: t.String()
+				})
+			])
+		})
+	})
+
+	it('return undefined with schema', async () => {
+		const app = new Elysia().get('/', () => undefined, {
+			response: t.Union([
+				t.Undefined(),
+				t.Object({
+					name: t.String()
+				})
+			])
+		})
+	})
+
+	it('return void with schema', async () => {
+		const app = new Elysia().get('/', () => undefined, {
+			response: t.Union([
+				t.Void(),
+				t.Object({
+					name: t.String()
+				})
+			])
+		})
+	})
+
+	it('return null with status based schema', async () => {
+		const app = new Elysia().get('/', () => undefined, {
+			response: {
+				200: t.Union([
+					t.Void(),
+					t.Object({
+						name: t.String()
+					})
+				]),
+				418: t.String()
+			}
+		})
+	})
+
+	it('return static undefined with status based schema', async () => {
+		const app = new Elysia().get('/', undefined, {
+			response: {
+				200: t.Union([
+					t.Void(),
+					t.Object({
+						name: t.String()
+					})
+				]),
+				418: t.String()
+			}
+		})
+	})
 })

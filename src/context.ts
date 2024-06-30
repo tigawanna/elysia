@@ -1,4 +1,4 @@
-import type { StatusMap, InvertedStatusMap } from './utils'
+import type { StatusMap, InvertedStatusMap, redirect as Redirect } from './utils'
 import type { Cookie, ElysiaCookie } from './cookies'
 
 import { error, type ELYSIA_RESPONSE } from './error'
@@ -14,6 +14,66 @@ type InvertedStatusMapKey = keyof InvertedStatusMap
 type WithoutNullableKeys<Type> = {
 	[Key in keyof Type]-?: NonNullable<Type[Key]>
 }
+
+type SetCookie = {
+	'Set-Cookie'?: string | string[]
+}
+
+export type ErrorContext<
+	in out Route extends RouteSchema = {},
+	in out Singleton extends SingletonBase = {
+		decorator: {}
+		store: {}
+		derive: {}
+		resolve: {}
+	},
+	Path extends string = ''
+> = Prettify<
+	{
+		body: Route['body']
+		query: undefined extends Route['query']
+			? Record<string, string | undefined>
+			: Route['query']
+		params: undefined extends Route['params']
+			? Path extends `${string}/${':' | '*'}${string}`
+				? Record<GetPathParameter<Path>, string>
+				: never
+			: Route['params']
+		headers: undefined extends Route['headers']
+			? Record<string, string | undefined>
+			: Route['headers']
+		cookie: undefined extends Route['cookie']
+			? Record<string, Cookie<any>>
+			: Record<string, Cookie<any>> &
+					Prettify<
+						WithoutNullableKeys<{
+							[key in keyof Route['cookie']]: Cookie<
+								Route['cookie'][key]
+							>
+						}>
+					>
+
+		redirect: Redirect
+
+		set: {
+			headers: Record<string, string> & SetCookie
+			status?: number | keyof StatusMap
+			redirect?: string
+			/**
+			 * ! Internal Property
+			 *
+			 * Use `Context.cookie` instead
+			 */
+			cookie?: Record<string, ElysiaCookie>
+		}
+
+		path: string
+		request: Request
+		store: Singleton['store']
+	} & Singleton['decorator'] &
+		Singleton['derive'] &
+		Singleton['resolve']
+>
 
 export type Context<
 	in out Route extends RouteSchema = {},
@@ -41,16 +101,18 @@ export type Context<
 		cookie: undefined extends Route['cookie']
 			? Record<string, Cookie<any>>
 			: Record<string, Cookie<any>> &
-					WithoutNullableKeys<{
-						[key in keyof Route['cookie']]: Cookie<
-							Route['cookie'][key]
-						>
-					}>
+					Prettify<
+						WithoutNullableKeys<{
+							[key in keyof Route['cookie']]: Cookie<
+								Route['cookie'][key]
+							>
+						}>
+					>
+
+		redirect: Redirect
 
 		set: {
-			headers: Record<string, string> & {
-				'Set-Cookie'?: string | string[]
-			}
+			headers: Record<string, string> & SetCookie
 			status?: number | keyof StatusMap
 			redirect?: string
 			/**
@@ -115,10 +177,10 @@ export type PreContext<
 		store: Singleton['store']
 		request: Request
 
+		redirect: Redirect
+
 		set: {
-			headers: { [header: string]: string } & {
-				['Set-Cookie']?: string | string[]
-			}
+			headers: { [header: string]: string } & SetCookie
 			status?: number
 			redirect?: string
 		}

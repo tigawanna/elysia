@@ -1,7 +1,7 @@
 {
   "name": "elysia",
   "description": "Ergonomic Framework for Human",
-  "version": "1.0.10",
+  "version": "1.0.26",
   "author": {
     "name": "saltyAom",
     "url": "https://github.com/SaltyAom",
@@ -11,6 +11,7 @@
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "exports": {
+    "./package.json": "./package.json",
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
@@ -90,7 +91,7 @@
     "test:functionality": "bun test && npm run test:node",
     "test:types": "tsc --project tsconfig.test.json",
     "test:node": "npm install --prefix ./test/node/cjs/ && npm install --prefix ./test/node/esm/ && node ./test/node/cjs/index.js && node ./test/node/esm/index.js && bun dist/bun/index.js",
-    "dev": "bun run --watch example/http.ts",
+    "dev": "bun run --watch example/a.ts",
     "build": "rimraf dist && bun build.ts",
     "release:local": "npm run build && npm run test && npm publish"
   },
@@ -104,7 +105,7 @@
   },
   "devDependencies": {
     "@types/benchmark": "^2.1.5",
-    "@types/bun": "^1.0.8",
+    "@types/bun": "^1.1.2",
     "@types/cookie": "^0.6.0",
     "@typescript-eslint/eslint-plugin": "^6.17.0",
     "@typescript-eslint/parser": "^6.17.0",
@@ -115,7 +116,7 @@
     "expect-type": "^0.16.0",
     "memoirist": "0.1.6",
     "tsup": "^8.0.2",
-    "typescript": "^5.4.2"
+    "typescript": "^5.4.5"
   },
   "peerDependencies": {
     "@sinclair/typebox": ">= 0.31.0",

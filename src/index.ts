@@ -291,8 +291,11 @@ export default class Elysia<
 			aot: true,
 			strictPath: false,
 			global: false,
-			cookie: {},
+			cookie: {
+				path: '/'
+			},
 			analytic: false,
+			forceDynamicQuery: true,
 			...config,
 			experimental: config?.experimental ?? {},
 			seed: config?.seed === undefined ? '' : config?.seed
@@ -1043,7 +1046,7 @@ export default class Elysia<
 							  })
 				>
 			>
-		) => MaybePromise<Resolver>
+		) => MaybePromise<Resolver | void>
 	): Type extends 'global'
 		? Elysia<
 				BasePath,
@@ -1111,7 +1114,7 @@ export default class Elysia<
 	 *         }
 	 *     }))
 	 */
-	resolve<const Resolver extends Record<string, unknown>>(
+	resolve<const Resolver extends Record<string, unknown> | void>(
 		resolver: (
 			context: Prettify<
 				Context<
@@ -1125,7 +1128,7 @@ export default class Elysia<
 					BasePath
 				>
 			>
-		) => MaybePromise<Resolver>
+		) => MaybePromise<Resolver | void>
 	): Elysia<
 		BasePath,
 		Scoped,
@@ -1170,7 +1173,7 @@ export default class Elysia<
 				},
 				BasePath
 			>
-		) => MaybePromise<NewResolver>
+		) => MaybePromise<NewResolver | void>
 	): Elysia<
 		BasePath,
 		Scoped,
@@ -1217,7 +1220,7 @@ export default class Elysia<
 									Volatile['resolve']
 						  })
 			>
-		) => MaybePromise<NewResolver>
+		) => MaybePromise<NewResolver | void>
 	): Type extends 'global'
 		? Elysia<
 				BasePath,
@@ -1971,7 +1974,14 @@ export default class Elysia<
 				Schema,
 				Metadata['schema'] & Ephemeral['schema'] & Volatile['schema']
 			>,
-			Singleton
+			{
+				decorator: Singleton['decorator']
+				store: Singleton['store']
+				derive: {}
+				resolve: {}
+			},
+			Ephemeral,
+			Volatile
 		>
 	): this
 
@@ -1997,7 +2007,14 @@ export default class Elysia<
 				Schema,
 				Metadata['schema'] & Ephemeral['schema'] & Volatile['schema']
 			>,
-			Singleton
+			{
+				decorator: Singleton['decorator']
+				store: Singleton['store']
+				derive: {}
+				resolve: {}
+			},
+			Ephemeral,
+			Volatile
 		>
 	): this
 
@@ -2344,6 +2361,7 @@ export default class Elysia<
 		instance.definitions = { ...this.definitions }
 		instance.getServer = () => this.server
 		instance.inference = cloneInference(this.inference)
+		instance.extender = { ...this.extender }
 
 		const isSchema = typeof schemaOrRun === 'object'
 		const sandbox = (isSchema ? run! : schemaOrRun)(instance)
@@ -2614,6 +2632,7 @@ export default class Elysia<
 		instance.singleton = { ...this.singleton }
 		instance.definitions = { ...this.definitions }
 		instance.inference = cloneInference(this.inference)
+		instance.extender = { ...this.extender }
 
 		const sandbox = run(instance)
 		this.singleton = mergeDeep(this.singleton, instance.singleton) as any
@@ -4625,7 +4644,7 @@ export default class Elysia<
 	 *         }
 	 *     }))
 	 */
-	derive<const Derivative extends Record<string, unknown>>(
+	derive<const Derivative extends Record<string, unknown> | void>(
 		transform: (
 			context: Prettify<
 				Context<
@@ -4674,7 +4693,7 @@ export default class Elysia<
 	 *     }))
 	 */
 	derive<
-		const Derivative extends Record<string, unknown>,
+		const Derivative extends Record<string, unknown> | void,
 		const Type extends LifeCycleType
 	>(
 		options: { as?: Type },
@@ -5325,8 +5344,11 @@ export {
 	mergeHook,
 	mergeObjectArray,
 	getResponseSchemaValidator,
+	redirect,
 	StatusMap,
-	InvertedStatusMap
+	InvertedStatusMap,
+	form,
+	type ELYSIA_FORM_DATA
 } from './utils'
 
 export {
@@ -5378,7 +5400,9 @@ export type {
 	TraceReporter,
 	TraceStream,
 	Checksum,
-	DocumentDecoration
+	DocumentDecoration,
+	InferContext,
+	InferHandler
 } from './types'
 
 export type { Static, TSchema } from '@sinclair/typebox'

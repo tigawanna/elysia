@@ -312,6 +312,32 @@ const b = app
 		}
 	)
 
+// ? It derive void
+{
+	app.derive(({ headers }) => {
+		if (Math.random() > 0.5)
+			return {
+				stuff: 'a'
+			}
+	}).get('/', ({ stuff }) => {
+		expectTypeOf<typeof stuff>().not.toBeUnknown()
+		expectTypeOf<typeof stuff>().toEqualTypeOf<'a' | undefined>()
+	})
+}
+
+// ? It resolve void
+{
+	app.resolve(async ({ headers }) => {
+		if (Math.random() > 0.5)
+			return {
+				stuff: 'a'
+			}
+	}).get('/', ({ stuff }) => {
+		expectTypeOf<typeof stuff>().not.toBeUnknown()
+		expectTypeOf<typeof stuff>().toEqualTypeOf<'a' | undefined>()
+	})
+}
+
 app.derive(({ headers }) => {
 	return {
 		authorization: headers.authorization as string
@@ -1102,6 +1128,8 @@ app.resolve(({ headers }) => {
 	const app = new Elysia()
 		.get('', () => 'a')
 		.get('/true', () => true)
+		.post('', () => 'a', { response: { 201: t.String() } })
+		.post('/true', () => true, { response: { 202: t.Boolean() } })
 		.get('/error', ({ error }) => error("I'm a teapot", 'a'))
 		.post('/mirror', ({ body }) => body)
 		.get('/immutable', '1')
@@ -1124,8 +1152,16 @@ app.resolve(({ headers }) => {
 		200: string
 	}>()
 
+	expectTypeOf<app['index']['post']['response']>().toEqualTypeOf<{
+		201: string
+	}>()
+
 	expectTypeOf<app['true']['get']['response']>().toEqualTypeOf<{
 		200: boolean
+	}>()
+
+	expectTypeOf<app['true']['post']['response']>().toEqualTypeOf<{
+		202: boolean
 	}>()
 
 	expectTypeOf<app['error']['get']['response']>().toEqualTypeOf<{
@@ -1191,4 +1227,52 @@ app.get('/', ({ set }) => {
 
 		return 'hello'
 	})
+}
+
+// ? Return file with File Schema
+{
+	const child = new Elysia().get(
+		'/',
+		() => {
+			return Bun.file('test/kyuukurarin.mp4')
+		},
+		{
+			response: t.File()
+		}
+	)
+}
+
+// ? Return file with Object File Schema
+{
+	const child = new Elysia().get(
+		'/',
+		() => {
+			return {
+				a: Bun.file('test/kyuukurarin.mp4')
+			}
+		},
+		{
+			response: t.Object({
+				a: t.File()
+			})
+		}
+	)
+}
+
+// ? Accept file with Object File Schema
+{
+	const child = new Elysia().get(
+		'/',
+		({ body: { file } }) => {
+			expectTypeOf<typeof file>().toEqualTypeOf<File>()
+
+			return file
+		},
+		{
+			body: t.Object({
+				file: t.File()
+			}),
+			response: t.File()
+		}
+	)
 }

@@ -7,7 +7,7 @@ import type { Context } from './context'
 
 import { parse as parseQuery } from 'fast-querystring'
 
-import { signCookie } from './utils'
+import { redirect, signCookie } from './utils'
 import { parseCookie } from './cookies'
 
 import type { Handler, LifeCycleStore, SchemaValidator } from './types'
@@ -44,7 +44,8 @@ export const createDynamicHandler =
 				store: app.singleton.store,
 				request,
 				path,
-				qi
+				qi,
+				redirect
 			}
 		) as unknown as Context
 
@@ -108,9 +109,12 @@ export const createDynamicHandler =
 						if (index !== -1)
 							contentType = contentType.slice(0, index)
 
+						// @ts-expect-error
+						context.contentType = contentType
+
 						for (let i = 0; i < hooks.parse.length; i++) {
 							const hook = hooks.parse[i].fn
-							let temp = hook(context, contentType)
+							let temp = hook(context as any, contentType)
 							if (temp instanceof Promise) temp = await temp
 
 							if (temp) {
@@ -118,6 +122,9 @@ export const createDynamicHandler =
 								break
 							}
 						}
+
+						// @ts-expect-error
+						delete context.contentType
 
 						// body might be empty string thus can't use !body
 						if (body === undefined) {
@@ -185,7 +192,7 @@ export const createDynamicHandler =
 				cookieHeaderValue,
 				cookieMeta
 					? {
-							secret:
+							secrets:
 								cookieMeta.secrets !== undefined
 									? typeof cookieMeta.secrets === 'string'
 										? cookieMeta.secrets

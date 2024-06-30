@@ -1,6 +1,7 @@
+/* eslint-disable sonarjs/no-nested-switch */
 /* eslint-disable sonarjs/no-duplicate-string */
 import { serialize } from 'cookie'
-import { StatusMap } from './utils'
+import { StatusMap, form } from './utils'
 
 import { Cookie } from './cookies'
 import { ELYSIA_RESPONSE } from './error'
@@ -14,7 +15,7 @@ type SetResponse = Omit<Context['set'], 'status'> & {
 }
 
 export const isNotEmpty = (obj?: Object) => {
-	if(!obj) return false
+	if (!obj) return false
 
 	for (const x in obj) return true
 
@@ -148,11 +149,12 @@ export const mapResponse = (
 		if (
 			set.headers['Set-Cookie'] &&
 			Array.isArray(set.headers['Set-Cookie'])
-		)
+		) {
 			set.headers = parseSetCookies(
 				new Headers(set.headers) as Headers,
 				set.headers['Set-Cookie']
 			) as any
+		}
 
 		switch (response?.constructor?.name) {
 			case 'String':
@@ -161,8 +163,23 @@ export const mapResponse = (
 			case 'Blob':
 				return handleFile(response as File | Blob, set)
 
-			case 'Object':
 			case 'Array':
+				return Response.json(response, set as SetResponse)
+
+			case 'Object':
+				for (const value in Object.values(response as Object)) {
+					switch (value?.constructor?.name) {
+						case 'Blob':
+						case 'File':
+						case 'ArrayBuffer':
+						case 'FileRef':
+							return new Response(form(response as any))
+
+						default:
+							break
+					}
+				}
+
 				return Response.json(response, set as SetResponse)
 
 			case 'ReadableStream':
@@ -178,7 +195,6 @@ export const mapResponse = (
 					'abort',
 					{
 						handleEvent() {
-							;
 							if (!request?.signal.aborted)
 								(response as ReadableStream).cancel(request)
 						}
@@ -199,20 +215,36 @@ export const mapResponse = (
 				return Response.json(response, set as SetResponse)
 
 			case 'Response':
-				const inherits = { ...set.headers }
+				let isCookieSet = false
 
-				if (hasHeaderShorthand)
-					set.headers = (
-						(response as Response).headers as Headers
-					).toJSON()
+				if (set.headers instanceof Headers)
+					for (const key of set.headers.keys()) {
+						if (key === 'set-cookie') {
+							if (isCookieSet) continue
+
+							isCookieSet = true
+
+							for (const cookie of set.headers.getSetCookie()) {
+								;(response as Response).headers.append(
+									'set-cookie',
+									cookie
+								)
+							}
+						} else
+							(response as Response).headers.append(
+								key,
+								set.headers?.get(key) ?? ''
+							)
+					}
 				else
-					for (const [key, value] of (
-						response as Response
-					).headers.entries())
-						if (key in set.headers) set.headers[key] = value
+					for (const key in set.headers)
+						(response as Response).headers.append(
+							key,
+							set.headers[key]
+						)
 
-				for (const key in inherits)
-					(response as Response).headers.append(key, inherits[key])
+				if ((response as Response).status !== set.status)
+					set.status = (response as Response).status
 
 				return response as Response
 
@@ -240,9 +272,38 @@ export const mapResponse = (
 
 				return new Response(response?.toString(), set as SetResponse)
 
+			case 'FormData':
+				return new Response(response as FormData, set as SetResponse)
+
 			default:
 				if (response instanceof Response) {
-					const inherits = Object.assign({}, set.headers)
+					let isCookieSet = false
+
+					if (set.headers instanceof Headers)
+						for (const key of set.headers.keys()) {
+							if (key === 'set-cookie') {
+								if (isCookieSet) continue
+
+								isCookieSet = true
+
+								for (const cookie of set.headers.getSetCookie()) {
+									;(response as Response).headers.append(
+										'set-cookie',
+										cookie
+									)
+								}
+							} else
+								(response as Response).headers.append(
+									key,
+									set.headers?.get(key) ?? ''
+								)
+						}
+					else
+						for (const key in set.headers)
+							(response as Response).headers.append(
+								key,
+								set.headers[key]
+							)
 
 					if (hasHeaderShorthand)
 						set.headers = (
@@ -254,12 +315,6 @@ export const mapResponse = (
 						).headers.entries())
 							if (key in set.headers) set.headers[key] = value
 
-					for (const key in inherits)
-						(response as Response).headers.append(
-							key,
-							inherits[key]
-						)
-
 					return response as Response
 				}
 
@@ -268,6 +323,9 @@ export const mapResponse = (
 
 				if (response instanceof Error)
 					return errorToResponse(response as Error, set)
+
+				if ('toResponse' in (response as any))
+					return mapResponse((response as any).toResponse(), set)
 
 				if ('charCodeAt' in (response as any)) {
 					const code = (response as any).charCodeAt(0)
@@ -293,20 +351,33 @@ export const mapResponse = (
 			case 'Blob':
 				return handleFile(response as File | Blob, set)
 
-			case 'Object':
 			case 'Array':
-				return new Response(JSON.stringify(response), {
-					headers: {
-						'content-type': 'application/json'
+				return Response.json(response)
+
+			case 'Object':
+				for (const value in Object.values(response as Object)) {
+					switch (value?.constructor?.name) {
+						case 'Blob':
+						case 'File':
+						case 'ArrayBuffer':
+						case 'FileRef':
+							return new Response(
+								form(response as any),
+								set as SetResponse
+							)
+
+						default:
+							break
 					}
-				})
+				}
+
+				return Response.json(response, set as SetResponse)
 
 			case 'ReadableStream':
 				request?.signal.addEventListener(
 					'abort',
 					{
 						handleEvent() {
-							;
 							if (!request?.signal.aborted)
 								(response as ReadableStream).cancel(request)
 						}
@@ -361,6 +432,9 @@ export const mapResponse = (
 
 				return new Response(response?.toString(), set as SetResponse)
 
+			case 'FormData':
+				return new Response(response as FormData, set as SetResponse)
+
 			default:
 				if (response instanceof Response)
 					return new Response(response.body, {
@@ -374,6 +448,9 @@ export const mapResponse = (
 
 				if (response instanceof Error)
 					return errorToResponse(response as Error, set)
+
+				if ('toResponse' in (response as any))
+					return mapResponse((response as any).toResponse(), set)
 
 				if ('charCodeAt' in (response as any)) {
 					const code = (response as any).charCodeAt(0)
@@ -447,8 +524,26 @@ export const mapEarlyResponse = (
 			case 'Blob':
 				return handleFile(response as File | Blob, set)
 
-			case 'Object':
 			case 'Array':
+				return Response.json(response, set as SetResponse)
+
+			case 'Object':
+				for (const value in Object.values(response as Object)) {
+					switch (value?.constructor?.name) {
+						case 'Blob':
+						case 'File':
+						case 'ArrayBuffer':
+						case 'FileRef':
+							return new Response(
+								form(response as any),
+								set as SetResponse
+							)
+
+						default:
+							break
+					}
+				}
+
 				return Response.json(response, set as SetResponse)
 
 			case 'ReadableStream':
@@ -464,7 +559,6 @@ export const mapEarlyResponse = (
 					'abort',
 					{
 						handleEvent() {
-							;
 							if (!request?.signal.aborted)
 								(response as ReadableStream).cancel(request)
 						}
@@ -485,19 +579,33 @@ export const mapEarlyResponse = (
 				return Response.json(response, set as SetResponse)
 
 			case 'Response':
-				const inherits = Object.assign({}, set.headers)
+				let isCookieSet = false
 
-				if (hasHeaderShorthand)
-					// @ts-ignore
-					set.headers = (response as Response).headers.toJSON()
+				if (set.headers instanceof Headers)
+					for (const key of set.headers.keys()) {
+						if (key === 'set-cookie') {
+							if (isCookieSet) continue
+
+							isCookieSet = true
+
+							for (const cookie of set.headers.getSetCookie()) {
+								;(response as Response).headers.append(
+									'set-cookie',
+									cookie
+								)
+							}
+						} else
+							(response as Response).headers.append(
+								key,
+								set.headers?.get(key) ?? ''
+							)
+					}
 				else
-					for (const [key, value] of (
-						response as Response
-					).headers.entries())
-						if (!(key in set.headers)) set.headers[key] = value
-
-				for (const key in inherits)
-					(response as Response).headers.append(key, inherits[key])
+					for (const key in set.headers)
+						(response as Response).headers.append(
+							key,
+							set.headers[key]
+						)
 
 				if ((response as Response).status !== set.status)
 					set.status = (response as Response).status
@@ -524,6 +632,9 @@ export const mapEarlyResponse = (
 					set as SetResponse
 				)
 
+			case 'FormData':
+				return new Response(response as FormData)
+
 			case 'Cookie':
 				if (response instanceof Cookie)
 					return new Response(response.value, set as SetResponse)
@@ -532,23 +643,36 @@ export const mapEarlyResponse = (
 
 			default:
 				if (response instanceof Response) {
-					const inherits = { ...set.headers }
+					let isCookieSet = false
 
-					if (hasHeaderShorthand)
-						set.headers = (
-							(response as Response).headers as Headers
-						).toJSON()
+					if (set.headers instanceof Headers)
+						for (const key of set.headers.keys()) {
+							if (key === 'set-cookie') {
+								if (isCookieSet) continue
+
+								isCookieSet = true
+
+								for (const cookie of set.headers.getSetCookie()) {
+									;(response as Response).headers.append(
+										'set-cookie',
+										cookie
+									)
+								}
+							} else
+								(response as Response).headers.append(
+									key,
+									set.headers?.get(key) ?? ''
+								)
+						}
 					else
-						for (const [key, value] of (
-							response as Response
-						).headers.entries())
-							if (key in set.headers) set.headers[key] = value
+						for (const key in set.headers)
+							(response as Response).headers.append(
+								key,
+								set.headers[key]
+							)
 
-					for (const key in inherits)
-						(response as Response).headers.append(
-							key,
-							inherits[key]
-						)
+					if ((response as Response).status !== set.status)
+						set.status = (response as Response).status
 
 					return response as Response
 				}
@@ -558,6 +682,9 @@ export const mapEarlyResponse = (
 
 				if (response instanceof Error)
 					return errorToResponse(response as Error, set)
+
+				if ('toResponse' in (response as any))
+					return mapEarlyResponse((response as any).toResponse(), set)
 
 				if ('charCodeAt' in (response as any)) {
 					const code = (response as any).charCodeAt(0)
@@ -583,20 +710,33 @@ export const mapEarlyResponse = (
 			case 'Blob':
 				return handleFile(response as File | Blob, set)
 
-			case 'Object':
 			case 'Array':
-				return new Response(JSON.stringify(response), {
-					headers: {
-						'content-type': 'application/json'
+				return Response.json(response)
+
+			case 'Object':
+				for (const value in Object.values(response as Object)) {
+					switch (value?.constructor?.name) {
+						case 'Blob':
+						case 'File':
+						case 'ArrayBuffer':
+						case 'FileRef':
+							return new Response(
+								form(response as any),
+								set as SetResponse
+							)
+
+						default:
+							break
 					}
-				})
+				}
+
+				return Response.json(response, set as SetResponse)
 
 			case 'ReadableStream':
 				request?.signal.addEventListener(
 					'abort',
 					{
 						handleEvent() {
-							;
 							if (!request?.signal.aborted)
 								(response as ReadableStream).cancel(request)
 						}
@@ -647,6 +787,9 @@ export const mapEarlyResponse = (
 
 				return new Response(response?.toString(), set as SetResponse)
 
+			case 'FormData':
+				return new Response(response as FormData)
+
 			default:
 				if (response instanceof Response)
 					return new Response(response.body, {
@@ -660,6 +803,9 @@ export const mapEarlyResponse = (
 
 				if (response instanceof Error)
 					return errorToResponse(response as Error, set)
+
+				if ('toResponse' in (response as any))
+					return mapEarlyResponse((response as any).toResponse(), set)
 
 				if ('charCodeAt' in (response as any)) {
 					const code = (response as any).charCodeAt(0)
@@ -704,20 +850,32 @@ export const mapCompactResponse = (
 		case 'Blob':
 			return handleFile(response as File | Blob)
 
-		case 'Object':
 		case 'Array':
-			return new Response(JSON.stringify(response), {
-				headers: {
-					'content-type': 'application/json'
+			return Response.json(response)
+
+		case 'Object':
+			form: for (const value of Object.values(response as Object))
+				switch (value?.constructor?.name) {
+					case 'Blob':
+					case 'File':
+					case 'ArrayBuffer':
+					case 'FileRef':
+						return new Response(form(response as any))
+
+					case 'Object':
+						break form
+
+					default:
+						break
 				}
-			})
+
+			return Response.json(response)
 
 		case 'ReadableStream':
 			request?.signal.addEventListener(
 				'abort',
 				{
 					handleEvent() {
-						;
 						if (!request?.signal.aborted)
 							(response as ReadableStream).cancel(request)
 					}
@@ -762,6 +920,9 @@ export const mapCompactResponse = (
 		case 'Boolean':
 			return new Response((response as number | boolean).toString())
 
+		case 'FormData':
+			return new Response(response as FormData)
+
 		default:
 			if (response instanceof Response)
 				return new Response(response.body, {
@@ -776,15 +937,22 @@ export const mapCompactResponse = (
 			if (response instanceof Error)
 				return errorToResponse(response as Error)
 
-			const r = JSON.stringify(response)
-			if (r.charCodeAt(0) === 123)
-				return new Response(JSON.stringify(response), {
-					headers: {
-						'Content-Type': 'application/json'
-					}
-				}) as any
+			if ('toResponse' in (response as any))
+				return mapCompactResponse((response as any).toResponse())
 
-			return new Response(r)
+			if ('charCodeAt' in (response as any)) {
+				const code = (response as any).charCodeAt(0)
+
+				if (code === 123 || code === 91) {
+					return new Response(JSON.stringify(response), {
+						headers: {
+							'Content-Type': 'application/json'
+						}
+					}) as any
+				}
+			}
+
+			return new Response(response as any)
 	}
 }
 

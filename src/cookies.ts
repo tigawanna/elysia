@@ -68,6 +68,17 @@ export interface CookieOptions {
 	 */
 	priority?: 'low' | 'medium' | 'high' | undefined
 	/**
+	 * Specifies the `boolean` value for the [`Partitioned` `Set-Cookie`](rfc-cutler-httpbis-partitioned-cookies)
+	 * attribute. When truthy, the `Partitioned` attribute is set, otherwise it is not. By default, the
+	 * `Partitioned` attribute is not set.
+	 *
+	 * **note** This is an attribute that has not yet been fully standardized, and may change in the future.
+	 * This also means many clients may ignore this attribute until they understand it.
+	 *
+	 * More information about can be found in [the proposal](https://github.com/privacycg/CHIPS)
+	 */
+	partitioned?: boolean | undefined
+	/**
 	 * Specifies the boolean or string to be the value for the {@link https://tools.ietf.org/html/draft-ietf-httpbis-rfc6265bis-03#section-4.1.2.7|`SameSite` `Set-Cookie` attribute}.
 	 *
 	 * - `true` will set the `SameSite` attribute to `Strict` for strict same
@@ -207,6 +218,14 @@ export class Cookie<T> implements ElysiaCookie {
 		this.cookie.priority = priority
 	}
 
+	get partitioned() {
+		return this.cookie.partitioned
+	}
+
+	set partitioned(partitioned) {
+		this.cookie.partitioned = partitioned
+	}
+
 	get secrets() {
 		return this.cookie.secrets
 	}
@@ -228,7 +247,7 @@ export class Cookie<T> implements ElysiaCookie {
 		this.cookie = Object.assign(
 			{
 				...this.initial,
-				value: this.value,
+				value: this.value
 			},
 			typeof config === 'function' ? config(this.cookie) : config
 		)
@@ -284,17 +303,16 @@ export const parseCookie = async (
 	set: Context['set'],
 	cookieString?: string | null,
 	{
-		secret,
+		secrets,
 		sign,
 		...initial
 	}: CookieOptions & {
-		secret?: string | string[]
 		sign?: true | string | string[]
 	} = {}
 ) => {
 	if (!cookieString) return createCookieJar(set, {}, initial)
 
-	const isStringKey = typeof secret === 'string'
+	const isStringKey = typeof secrets === 'string'
 	if (sign && sign !== true && !Array.isArray(sign)) sign = [sign]
 
 	const jar: Record<string, ElysiaCookie> = {}
@@ -304,18 +322,18 @@ export const parseCookie = async (
 		let value = decodeURIComponent(v)
 
 		if (sign === true || sign?.includes(name)) {
-			if (!secret)
+			if (!secrets)
 				throw new Error('No secret is provided to cookie plugin')
 
 			if (isStringKey) {
-				const temp = await unsignCookie(value as string, secret)
+				const temp = await unsignCookie(value as string, secrets)
 				if (temp === false) throw new InvalidCookieSignature(name)
 
 				value = temp
 			} else {
 				let decoded = true
-				for (let i = 0; i < secret.length; i++) {
-					const temp = await unsignCookie(value as string, secret[i])
+				for (let i = 0; i < secrets.length; i++) {
+					const temp = await unsignCookie(value as string, secrets[i])
 
 					if (temp !== false) {
 						decoded = true
@@ -326,6 +344,13 @@ export const parseCookie = async (
 
 				if (!decoded) throw new InvalidCookieSignature(name)
 			}
+		}
+
+		if (value == null) {
+			jar[name] = {
+				value: v
+			}
+			continue
 		}
 
 		const start = value.charCodeAt(0)

@@ -1,3 +1,132 @@
+# 1.0.26 - 30 Jun 2024
+Bug fix:
+- mapResponse is not called on beforeHandle, and afterHandle
+
+# 1.0.25 - 21 Jun 2024
+Bug fix:
+- type is resolved as `File` if `@types/bun` is not installed when using with Eden Treaty
+
+# 1.0.24 - 18 Jun 2024
+Bug fix:
+- `derive`, `resolve` support void return
+- [#677](https://github.com/elysiajs/elysia/issues/677) Query params validation for array of string fail
+
+# 1.0.23 - 9 Jun 2024
+Feature:
+- add `toResponse` for mapping custom response
+- [#606](https://github.com/elysiajs/elysia/issues/606) Object encoding in query parameters
+
+Bug fix:
+- [#654](https://github.com/elysiajs/elysia/pull/654) set correct normalization behavior for addtional properties
+- [#649](https://github.com/elysiajs/elysia/pull/649) cookie decode value might be null
+- [#664](https://github.com/elysiajs/elysia/issues/664) "default" option is not being applied on validation
+- [#656](https://github.com/elysiajs/elysia/issues/656) ctx.query doesn't work in some case
+    - set forceDynamicQuery to true by default
+- [#658](https://github.com/elysiajs/elysia/issues/658) aot does not recognize the use of ctx.body within a try catch
+- [#630](https://github.com/elysiajs/elysia/issues/630) accessing ctx.query directly breaks the object
+
+# 1.0.22 - 23 May 2024
+Breaking Change:
+- set default cookie path to `/`
+
+Feature:
+- add `form` utility for returning explicit formdata
+- add object with image to return as `formdata`
+
+Bug fix:
+- return `Bun.file` by specifying `t.File()` and `t.Object({ any: t.File() })` as a response
+
+# 1.0.21 - 21 May 2024
+Breaking Change:
+- `t.type({ error })` now accepts `(error: ({ type, validator, value, errors }) => unknown)` instead of `(error: (type, validator, value) => unknown)`
+
+Improvement:
+- `t.type({ error })` accepts `string | number | boolean | Object` instead of `string`
+- `t.type({ error })` return `string | number | boolean | Object | void` instead of `string`
+- add `errors: ValueError[]` to `t.type({ error({ errors }) {} })`
+
+Bug fix:
+- [#644](https://github.com/elysiajs/elysia/issues/644) redirect doesn't work with `aot: false`
+- [#641](https://github.com/elysiajs/elysia/issues/641) cookie schema validation doesn't work with `aot: true`
+- [#615](https://github.com/elysiajs/elysia/issues/615) highlight derive and resolve when using `onError`
+
+# 1.0.20 - 13 May 2024
+Bug fix:
+- macro is not inherits inside group
+
+# 1.0.19 - 13 May 2024
+Bug fix:
+- remove set.clone spread operator for mapping Response
+
+# 1.0.18 - 11 May 2024
+Feature:
+- add support for partitioned cookie
+
+Bug fix:
+- recursive MacroToProperty type on unknown macro
+
+# 1.0.17 - 9 May 2024
+Improvement:
+- add context.url to get full URL string (including query)
+- reduce query parsing instruction
+
+# 1.0.16 - 2 May 2024
+Bug fix:
+- [ratelimit#28](https://github.com/rayriffy/elysia-rate-limit/issues/28) trace hang when using server-timing with rate-limit plugin
+
+# 1.0.15 - 27 Apr 2024
+Feature:
+- add `redirect` function to `Context`
+
+Improvement:
+- sucrose: remove unreachable query bracket check, reduce bracket instruction
+- sucrose: query accessor keyword check at initialization instead of in loop
+- sucrose: remove accessor check
+- sucrose: skip query check for immediate return
+
+Change:
+- sucrose: add `isArrowReturn` to `separateFunction`
+- sucrose: skip inference queries check if `query` is not found
+
+Change:
+- allow custom parser when `type` is specified
+- add `contentType` to context
+- soft deprecate `contentType` as 2nd `parse` parameter
+
+Bug fix:
+- [#622](https://github.com/elysiajs/elysia/issues/622) sucrose: mistake cookie for query
+- duplicate format found
+- using `parse`, `type`, `body` generate invalid syntax
+
+# 1.0.14 - 22 Apr 2024
+Improvement:
+- [#596](https://github.com/elysiajs/elysia/pull/596) account for 20x response status schemas for type safety
+
+Bug fix:
+- [#615](https://github.com/elysiajs/elysia/issues/615)
+- [588](https://github.com/elysiajs/elysia/issues/588) separate async derive/resolve function doesn't get await
+- primitive thrown result in invalid type
+
+# 1.0.12 - 5 Apr 2024
+Improvement:
+- export `InferContext` and `InferHandler`
+
+Bug fix:
+- remove accidental `console.log` in `compile`
+
+# 1.0.12 - 5 Apr 2024
+Feature:
+- add `InferContext`
+
+Bug fix:
+- returning null with response validation cause error
+
+# 1.0.11 - 2 Apr 2024
+Bug fix:
+- possibly fix for "Duplicate type kind 'Files' detected"
+- add ajv-formats
+- [#562](https://github.com/elysiajs/elysia/pull/575) %26 (&) to be interpreted as & (query separator)
+
 # 1.0.10 - 30 Mar 2024
 Bug fix:
 - [ServerTiming#1](https://github.com/elysiajs/elysia-server-timing/issues/1) late beforeHandle on set trace inference doesn't produce exit instruction
@@ -131,7 +260,7 @@ Bug fix:
 Feature:
 - [#474](https://github.com/elysiajs/elysia/pull/474) Numeric Cookie with length >= 16 cant be parsed to number
 - [#476](https://github.com/elysiajs/elysia/pull/476) Using a query key that contains a hyphen or a dot raises a SyntaxError
-- [#460](https://github.com/elysiajs/elysia/pull/460) 
+- [#460](https://github.com/elysiajs/elysia/pull/460)
     - [#458](https://github.com/elysiajs/elysia/pull/458) Multiple scoped plugins do not register routes
     - [#457](https://github.com/elysiajs/elysia/pull/457) Elysia arguments scoped and prefix do not work at the same time
 
@@ -144,7 +273,7 @@ Feature:
 
 Bug fix:
 - [#451](https://github.com/elysiajs/elysia/pull/464) handle spread operator use on possible null or undefined
-- [#460](https://github.com/elysiajs/elysia/pull/460) 
+- [#460](https://github.com/elysiajs/elysia/pull/460)
     - [#457](https://github.com/elysiajs/elysia/pull/457) scoped plugin instances now respect the prefix property
     - [#458](https://github.com/elysiajs/elysia/pull/458) adding a second scoped plugin does not unmount the route handler of a previously added scoped instance anymore.
 
@@ -293,7 +422,7 @@ Bug fix:
 - [#309](https://github.com/elysiajs/elysia/issues/309) t.RegExp doesn't work due to requiring default value
 - [#308](https://github.com/elysiajs/elysia/issues/308) t.Numeric should not convert empty string to 0
 - [#305](https://github.com/elysiajs/elysia/issues/305) Elysia({ scoped: true }) should still expose defined routes on type level
-- [#304](https://github.com/elysiajs/elysia/issues/304) Using a hook/guard/schema with a handler function and request without body results in a "Unexpected end of JSON input"-error 
+- [#304](https://github.com/elysiajs/elysia/issues/304) Using a hook/guard/schema with a handler function and request without body results in a "Unexpected end of JSON input"-error
 - [#299](https://github.com/elysiajs/elysia/issues/299) Missing request.path parameter in .onRequest
 - [#289](https://github.com/elysiajs/elysia/issues/289) Ability to localize TypeBox errors
 - [#272](https://github.com/elysiajs/elysia/issues/272) onError handler has error property as undefined on Cloudflare Workers

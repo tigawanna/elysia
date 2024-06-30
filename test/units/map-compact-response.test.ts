@@ -1,9 +1,16 @@
 import { describe, it, expect } from 'bun:test'
 import { mapCompactResponse } from '../../src/handler'
 import { Passthrough } from './utils'
+import { form } from '../../src'
 
 class Student {
 	constructor(public name: string) {}
+
+	toString() {
+		return JSON.stringify({
+			name: this.name
+		})
+	}
 }
 
 class CustomResponse extends Response {}
@@ -136,7 +143,7 @@ describe('Map Compact Response', () => {
 				headers: {
 					Name: 'Himari'
 				}
-			}),
+			})
 		)
 		const headers = response.headers.toJSON()
 
@@ -167,5 +174,19 @@ describe('Map Compact Response', () => {
 			`bytes 0-${kyuukararin.size - 1}/${kyuukararin.size}`
 		)
 		expect(response.status).toBe(200)
+	})
+
+	it('map formdata', async () => {
+		const response = mapCompactResponse(
+			form({
+				a: Bun.file('test/kyuukurarin.mp4')
+			})
+		)!
+
+		expect(response.headers.get('content-type')).toStartWith(
+			'multipart/form-data'
+		)
+		expect(response.status).toBe(200)
+		expect(await response.formData()).toBeInstanceOf(FormData)
 	})
 })

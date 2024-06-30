@@ -1,22 +1,18 @@
-import { Elysia, t, ValidationError } from '../src'
+import { Elysia } from '../src'
 import { req } from '../test/utils'
 
-const app = new Elysia()
-	.get('/', ({ cookie }) => {
-		cookie.auth.set({
-			path: '/',
-			value: Math.random().toString(),
-			maxAge: 7 * 86400,
-			secure: true,
-			httpOnly: true
-		})
+const app = new Elysia({ precompile: true })
+	.mapResponse(() => {
+		return new Response('b')
 	})
-	.get('/remove', ({ cookie }) => {
-		cookie.auth.remove()
+	.get('/', () => 'a', {
+		afterHandle() {
+			return 'a'
+		}
 	})
-	.get('/value', ({ cookie }) => {
-		return cookie.auth.value
-	})
-	.listen(3000)
 
-// console.dir(app.routes, { depth: null })
+app.handle(req('/'))
+	.then((res) => res.text())
+	.then(console.log)
+
+console.log(app.routes[0].composed?.toString())
