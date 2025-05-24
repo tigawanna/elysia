@@ -1,9 +1,8 @@
-import { Elysia, t } from '../src'
+import Elysia, { t } from '../src'
 
-const app = new Elysia()
-	.get('/', ({ request }) => {
-		request.url
-	})
-	.listen(3000)
+const strict = new Elysia({ strictPath: true })
+	.get('', '')
 
-// console.log(app.routes[0].compile().toString())
+console.log(strict.router.response)
+
+// console.log(app.router.response)
