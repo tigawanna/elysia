@@ -880,6 +880,27 @@ export type OptionalHandler<
 		: Route['response'][keyof Route['response']] | void
 >
 
+export type AfterHandler<
+	in out Route extends RouteSchema = {},
+	in out Singleton extends SingletonBase = {
+		decorator: {}
+		store: {}
+		derive: {}
+		resolve: {}
+	},
+	Path extends string | undefined = undefined
+> = (
+	context: Context<Route, Singleton, Path> & {
+		response: {} extends Route['response']
+			? unknown
+			: Route['response'][keyof Route['response']]
+	}
+) => MaybePromise<
+	{} extends Route['response']
+		? unknown
+		: Route['response'][keyof Route['response']] | void
+>
+
 export type MapResponse<
 	in out Route extends RouteSchema = {},
 	in out Singleton extends SingletonBase = {
@@ -995,13 +1016,11 @@ export type AfterResponseHandler<
 		resolve: {}
 	}
 > = (
-	context: Prettify<
-		Omit<Context<Route, Singleton>, 'response'> & {
-			response: {} extends Route['response']
-				? unknown
-				: Route['response'][keyof Route['response']]
-		}
-	>
+	context: Context<Route, Singleton> & {
+		response: {} extends Route['response']
+			? unknown
+			: Route['response'][keyof Route['response']]
+	}
 ) => MaybePromise<unknown>
 
 export type GracefulHandler<in Instance extends AnyElysia> = (
@@ -1288,7 +1307,7 @@ export type LocalHook<
 		/**
 		 * Execute after main handler
 		 */
-		afterHandle?: MaybeArray<OptionalHandler<Schema, Singleton>>
+		afterHandle?: MaybeArray<AfterHandler<Schema, Singleton>>
 		/**
 		 * Execute after main handler
 		 */
@@ -1407,11 +1426,11 @@ export type BaseMacroFn<
 		): unknown
 
 		onAfterHandle?(
-			fn: MaybeArray<OptionalHandler<TypedRoute, Singleton>>
+			fn: MaybeArray<AfterHandler<TypedRoute, Singleton>>
 		): unknown
 		onAfterHandle?(
 			options: MacroOptions,
-			fn: MaybeArray<OptionalHandler<TypedRoute, Singleton>>
+			fn: MaybeArray<AfterHandler<TypedRoute, Singleton>>
 		): unknown
 
 		onError?(
@@ -1457,7 +1476,7 @@ export type HookMacroFn<
 				beforeHandle?: MaybeArray<
 					OptionalHandler<TypedRoute, Singleton>
 				>
-				afterHandle?: MaybeArray<OptionalHandler<TypedRoute, Singleton>>
+				afterHandle?: MaybeArray<AfterHandler<TypedRoute, Singleton>>
 				error?: MaybeArray<ErrorHandler<Errors, TypedRoute, Singleton>>
 				mapResponse?: MaybeArray<MapResponse<TypedRoute, Singleton>>
 				afterResponse?: MaybeArray<
@@ -1471,7 +1490,7 @@ export type HookMacroFn<
 				beforeHandle?: MaybeArray<
 					OptionalHandler<TypedRoute, Singleton>
 				>
-				afterHandle?: MaybeArray<OptionalHandler<TypedRoute, Singleton>>
+				afterHandle?: MaybeArray<AfterHandler<TypedRoute, Singleton>>
 				error?: MaybeArray<ErrorHandler<Errors, TypedRoute, Singleton>>
 				mapResponse?: MaybeArray<MapResponse<TypedRoute, Singleton>>
 				afterResponse?: MaybeArray<
@@ -1526,12 +1545,10 @@ export interface MacroManager<
 		fn: MaybeArray<OptionalHandler<TypedRoute, Singleton>>
 	): unknown
 
-	onAfterHandle(
-		fn: MaybeArray<OptionalHandler<TypedRoute, Singleton>>
-	): unknown
+	onAfterHandle(fn: MaybeArray<AfterHandler<TypedRoute, Singleton>>): unknown
 	onAfterHandle(
 		options: MacroOptions,
-		fn: MaybeArray<OptionalHandler<TypedRoute, Singleton>>
+		fn: MaybeArray<AfterHandler<TypedRoute, Singleton>>
 	): unknown
 
 	onError(
@@ -1573,9 +1590,11 @@ type _CreateEden<
 	? {
 			[x in Start]: _CreateEden<Rest, Property>
 		}
-	: {
-			[x in Path]: Property
-		}
+	: Path extends ''
+		? Property
+		: {
+				[x in Path]: Property
+			}
 
 type RemoveStartinSlash<T> = T extends `/${infer Rest}` ? Rest : T
 
@@ -1590,8 +1609,8 @@ export type ComposeElysiaResponse<
 	Schema extends RouteSchema,
 	Handle
 > = Handle extends (...a: any[]) => infer A
-	? _ComposeElysiaResponse<Schema, Replace<Awaited<A>, Blob, File>>
-	: _ComposeElysiaResponse<Schema, Replace<Awaited<Handle>, Blob, File>>
+	? _ComposeElysiaResponse<Schema, Awaited<A>>
+	: _ComposeElysiaResponse<Schema, Awaited<Handle>>
 
 export type EmptyRouteSchema = {
 	body: unknown
@@ -1605,10 +1624,19 @@ export type EmptyRouteSchema = {
 type _ComposeElysiaResponse<Schema extends RouteSchema, Handle> = Prettify<
 	(Schema['response'] extends { 200: any }
 		? {
-				200: Replace<Schema['response'][200], ElysiaFile | Blob, File>
+				200: Replace<Schema['response'][200], ElysiaFile, File>
 			}
 		: {
-				200: Exclude<Handle, AnyElysiaCustomStatusResponse>
+				200: Handle extends AnyElysiaCustomStatusResponse
+					?
+							| Exclude<Handle, AnyElysiaCustomStatusResponse>
+							| Extract<
+									Handle,
+									ElysiaCustomStatusResponse<200, any, 200>
+							  >['response']
+					: Handle extends Generator<infer A, infer B, infer C>
+						? AsyncGenerator<A, B, C>
+						: Replace<Handle, ElysiaFile, File>
 			}) &
 		ExtractErrorFromHandle<Handle> &
 		({} extends Omit<Schema['response'], 200>
@@ -1988,3 +2016,14 @@ export type MergeTypeModule<
 	A extends TModule<any, any>,
 	B extends TModule<any, any>
 > = TModule<Prettify<UnwrapTypeModule<A> & UnwrapTypeModule<B>>>
+
+export type SSEPayload = {
+	/** id of the event */
+	id?: string | number | null
+	/** event name */
+	event?: string
+	/** retry in millisecond */
+	retry?: number
+	/** data to send */
+	data?: unknown
+}

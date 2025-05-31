@@ -1,9 +1,15 @@
-import { Elysia, t } from '../src'
+import { Elysia, sse, t } from '../src'
 
-const app = new Elysia()
-	.get('/', ({ request }) => {
-		request.url
+const a = t.Object({
+	message: t.String(),
+	image: t.Optional(t.Files())
+})
+
+new Elysia()
+	.model({
+		a
+	})
+	.post('/', ({ body }) => 'ok', {
+		body: 'a'
 	})
 	.listen(3000)
-
-// console.log(app.routes[0].compile().toString())

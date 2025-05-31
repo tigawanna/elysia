@@ -10,15 +10,7 @@ const total = 500
 
 	for (let i = 0; i < total; i++)
 		app.get(`/id/${i}`, () => 'hello', {
-			response: t.Object({
-				hello: t.String(),
-				world: t.String(),
-				extra: t.Object({
-					a: t.Array(t.String()),
-					b: t.Nullable(t.Array(t.String())),
-					name: t.String()
-				})
-			})
+			response: t.String()
 		})
 
 	const memoryAfter = process.memoryUsage().heapTotal / 1024 / 1024

@@ -40,7 +40,8 @@ import {
 	promoteEvent,
 	isNotEmpty,
 	encodePath,
-	lifeCycleToArray
+	lifeCycleToArray,
+	supportPerMethodInlineHandler
 } from './utils'
 
 import {
@@ -152,7 +153,8 @@ import type {
 	PrettifySchema,
 	MergeStandaloneSchema,
 	IsNever,
-	DocumentDecoration
+	DocumentDecoration,
+	AfterHandler
 } from './types'
 
 export type AnyElysia = Elysia<any, any, any, any, any, any, any>
@@ -250,6 +252,16 @@ export default class Elysia<
 		scoped: null,
 		local: null,
 		getCandidate() {
+			if (!this.global && !this.scoped && !this.local)
+				return {
+					body: undefined,
+					headers: undefined,
+					params: undefined,
+					query: undefined,
+					cookie: undefined,
+					response: undefined
+				}
+
 			return mergeSchemaValidator(
 				mergeSchemaValidator(this.global, this.scoped),
 				this.local
@@ -293,7 +305,11 @@ export default class Elysia<
 		// Static Router
 		static: {} as { [path in string]: { [method in string]: number } },
 		// Native Static Response
-		response: {} as Record<string, MaybePromise<Response | undefined>>,
+		response: {} as {
+			[path: string]:
+				| MaybePromise<Response | undefined>
+				| { [method: string]: MaybePromise<Response | undefined> }
+		},
 		history: [] as InternalRoute[]
 	}
 
@@ -479,7 +495,6 @@ export default class Elysia<
 
 		return models as any
 	}
-
 	private add(
 		method: HTTPMethod,
 		path: string,
@@ -769,6 +784,7 @@ export default class Elysia<
 			)
 
 		this.applyMacro(localHook)
+
 		const hooks = isNotEmpty(this.event)
 			? mergeHook(this.event, localHookToLifeCycleStore(localHook))
 			: lifeCycleToArray(localHookToLifeCycleStore(localHook))
@@ -851,12 +867,23 @@ export default class Elysia<
 		const useNativeStaticResponse =
 			this.config.nativeStaticResponse === true
 
-		if (
-			useNativeStaticResponse &&
-			nativeStaticHandler &&
-			(method === 'GET' || method === 'ALL')
-		)
-			this.router.response[path] = nativeStaticHandler()
+		const addResponsePath = (path: string) => {
+			if (!useNativeStaticResponse || !nativeStaticHandler) return
+
+			if (supportPerMethodInlineHandler) {
+				if (this.router.response[path])
+					// @ts-expect-error
+					this.router.response[path]![method] = nativeStaticHandler()
+				else
+					this.router.response[path] = {
+						[method]: nativeStaticHandler()
+					}
+			} else {
+				this.router.response[path] = nativeStaticHandler()
+			}
+		}
+
+		addResponsePath(path)
 
 		let _compiled: ComposedHandler
 		const compile = () => {
@@ -982,39 +1009,16 @@ export default class Elysia<
 					[method]: index
 				} as const
 
-			if (
-				!this.config.strictPath &&
-				useNativeStaticResponse &&
-				nativeStaticHandler &&
-				(method === 'GET' || method === 'ALL')
-			)
-				this.router.response[getLoosePath(path)] = nativeStaticHandler()
+			if (!this.config.strictPath) addResponsePath(getLoosePath(path))
 
 			// Static path doesn't need encode as it's done in compilation process
 		} else {
 			this.router.http.add(method, path, handler)
 
-			const staticHandler =
-				typeof handle !== 'function' &&
-				typeof adapter.createStaticHandler === 'function'
-					? adapter.createStaticHandler(
-							handle,
-							hooks,
-							this.setHeaders
-						)
-					: undefined
-
 			if (!this.config.strictPath) {
 				const loosePath = getLoosePath(path)
 
-				if (
-					useNativeStaticResponse &&
-					staticHandler &&
-					(method === 'GET' || method === 'ALL')
-				)
-					this.router.response[loosePath] =
-						staticHandler() as Response
-
+				addResponsePath(loosePath)
 				this.router.http.add(method, loosePath, handler)
 			}
 
@@ -1022,16 +1026,7 @@ export default class Elysia<
 			if (path !== encoded) {
 				this.router.http.add(method, encoded, handler)
 
-				if (
-					useNativeStaticResponse &&
-					staticHandler &&
-					(method === 'GET' || method === 'ALL')
-				) {
-					this.router.response[encoded] = staticHandler() as Response
-
-					this.router.response[getLoosePath(encoded)] =
-						staticHandler() as Response
-				}
+				addResponsePath(encoded)
 			}
 		}
 	}
@@ -1874,7 +1869,7 @@ export default class Elysia<
 	 */
 	onAfterHandle<const Schema extends RouteSchema>(
 		handler: MaybeArray<
-			OptionalHandler<
+			AfterHandler<
 				MergeSchema<
 					Schema,
 					MergeSchema<
@@ -3826,26 +3821,13 @@ export default class Elysia<
 					default:
 						| AnyElysia
 						| ((app: AnyElysia) => MaybePromise<AnyElysia>)
-			  }>,
-		options?: { scoped?: boolean }
+			  }>
 	): AnyElysia {
 		if (Array.isArray(plugin)) {
 			// eslint-disable-next-line @typescript-eslint/no-this-alias
 			let app = this
 			for (const p of plugin) app = app.use(p) as any
 			return app
-		}
-
-		if (options?.scoped)
-			return this.guard({} as any, (app) => app.use(plugin as any))
-
-		if (Array.isArray(plugin)) {
-			// eslint-disable-next-line @typescript-eslint/no-this-alias
-			let current = this
-
-			for (const p of plugin) current = this.use(p) as any
-
-			return current
 		}
 
 		if (plugin instanceof Promise) {
@@ -4005,46 +3987,6 @@ export default class Elysia<
 		plugin.getGlobalRoutes = () => this.getGlobalRoutes()
 		plugin.getGlobalDefinitions = () => this.getGlobalDefinitions()
 
-		// if (this.config.sanitize) {
-		// 	const isArray = (v: unknown): v is any[] => Array.isArray(v)
-
-		// 	if (plugin.config.sanitize) {
-		// 		if (isArray(this.config.sanitize)) {
-		// 			if (isArray(plugin.config.sanitize)) {
-		// 				plugin.config.sanitize = this.config.sanitize.concat(
-		// 					plugin.config.sanitize
-		// 				)
-		// 			} else {
-		// 				if (isArray(plugin.config.sanitize)) {
-		// 					plugin.config.sanitize =
-		// 						this.config.sanitize.concat(
-		// 							plugin.config.sanitize
-		// 						)
-		// 				} else {
-		// 					if (this.config.sanitize)
-		// 						plugin.config.sanitize = [
-		// 							...this.config.sanitize,
-		// 							plugin.config.sanitize
-		// 						]
-		// 				}
-		// 			}
-		// 		} else {
-		// 			if (isArray(plugin.config.sanitize)) {
-		// 				plugin.config.sanitize = [
-		// 					this.config.sanitize,
-		// 					...plugin.config.sanitize
-		// 				]
-		// 			} else {
-		// 				if (this.config.sanitize)
-		// 					plugin.config.sanitize = [
-		// 						this.config.sanitize,
-		// 						plugin.config.sanitize
-		// 					]
-		// 			}
-		// 		}
-		// 	} else plugin.config.sanitize = this.config.sanitize
-		// }
-
 		if (plugin.standaloneValidator?.scoped) {
 			if (this.standaloneValidator.local)
 				this.standaloneValidator.local =
@@ -4116,23 +4058,30 @@ export default class Elysia<
 
 		// ! Deduplicate current instance
 		deduplicateChecksum(this.extender.macros)
-		deduplicateChecksum(this.extender.higherOrderFunctions)
 
-		// ! Deduplicate current instance
-		const hofHashes: number[] = []
-		for (let i = 0; i < this.extender.higherOrderFunctions.length; i++) {
-			const hof = this.extender.higherOrderFunctions[i]
+		if (plugin.extender.higherOrderFunctions.length) {
+			deduplicateChecksum(this.extender.higherOrderFunctions)
 
-			if (hof.checksum) {
-				if (hofHashes.includes(hof.checksum)) {
-					this.extender.higherOrderFunctions.splice(i, 1)
-					i--
+			// ! Deduplicate current instance
+			const hofHashes: number[] = []
+			for (
+				let i = 0;
+				i < this.extender.higherOrderFunctions.length;
+				i++
+			) {
+				const hof = this.extender.higherOrderFunctions[i]
+
+				if (hof.checksum) {
+					if (hofHashes.includes(hof.checksum)) {
+						this.extender.higherOrderFunctions.splice(i, 1)
+						i--
+					}
+
+					hofHashes.push(hof.checksum)
 				}
-
-				hofHashes.push(hof.checksum)
 			}
+			hofHashes.length = 0
 		}
-		hofHashes.length = 0
 
 		this.inference = mergeInference(this.inference, plugin.inference)
 
@@ -6182,7 +6131,7 @@ export default class Elysia<
 			decorators: Definitions['typebox'] extends infer Models extends
 				Record<string, TSchema>
 				? {
-						[type in keyof Models]: TRef<// @ts-expect-error type is always string
+						[type in keyof Models]: TRef<// @ts-ignore
 						type>
 					}
 				: {}
@@ -6717,7 +6666,8 @@ export {
 	cloneInference,
 	deduplicateChecksum,
 	ELYSIA_FORM_DATA,
-	ELYSIA_REQUEST_ID
+	ELYSIA_REQUEST_ID,
+	sse
 } from './utils'
 
 export {
@@ -6781,7 +6731,16 @@ export type {
 	UnwrapGroupGuardRoute,
 	ModelValidatorError,
 	ExcludeElysiaResponse,
-	CoExist
+	SSEPayload,
+	StandaloneInputSchema,
+	MergeStandaloneSchema,
+	MergeTypeModule,
+	GracefulHandler,
+	AfterHandler,
+	InlineHandler,
+	ResolveHandler,
+	TransformHandler,
+	HTTPHeaders
 } from './types'
 
 export { env } from './universal/env'
