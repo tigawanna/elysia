@@ -664,6 +664,27 @@ describe('Body Validator', () => {
 		expect(+response).toBe(size)
 	})
 
+	it('handle file upload using model reference', async () => {
+		const app = new Elysia()
+			.model({
+				a: t.Object({
+					message: t.String(),
+					image: t.Optional(t.Files())
+				})
+			})
+			.post('/', ({ body }) => 'ok', {
+				body: 'a'
+			})
+
+		const { request } = upload('/', {
+			message: 'Hello, world!'
+		})
+
+		const status = await app.handle(request).then((r) => r.status)
+
+		expect(status).toBe(200)
+	})
+
 	it('handle file prefix', async () => {
 		const app = new Elysia()
 			.post('/pass1', ({ body: { file } }) => file.size, {
@@ -1001,6 +1022,48 @@ describe('Body Validator', () => {
 
 			const status = await app.handle(request).then((r) => r.status)
 			expect(status).toBe(200)
+		}
+	})
+
+	it('validate actual files', async () => {
+		const app = new Elysia().post('/', () => 'ok', {
+			body: t.Object({
+				file: t.Files({
+					type: 'image'
+				})
+			})
+		})
+
+		// case 1 fail: contains fake image
+		// {
+		// 	const body = new FormData()
+		// 	body.append('file', Bun.file('test/images/fake.jpg'))
+		// 	body.append('file', Bun.file('test/images/kozeki-ui.webp'))
+
+		// 	const response = await app.handle(
+		// 		new Request('http://localhost/', {
+		// 			method: 'POST',
+		// 			body
+		// 		})
+		// 	)
+
+		// 	expect(response.status).toBe(422)
+		// }
+
+		// case 2 pass: all valid images
+		{
+			const body = new FormData()
+			body.append('file', Bun.file('test/images/millenium.jpg'))
+			body.append('file', Bun.file('test/images/kozeki-ui.webp'))
+
+			const response = await app.handle(
+				new Request('http://localhost/', {
+					method: 'POST',
+					body
+				})
+			)
+
+			expect(response.status).toBe(200)
 		}
 	})
 

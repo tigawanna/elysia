@@ -40,7 +40,8 @@ import {
 	getCookieValidator,
 	getSchemaValidator,
 	hasType,
-	isUnion
+	isUnion,
+	unwrapImportSchema
 } from './schema'
 import { Sucrose, sucrose } from './sucrose'
 import { parseCookie, type CookieOptions } from './cookies'
@@ -192,16 +193,16 @@ const composeCleaner = ({
 }) => {
 	if (!normalize || !schema.Clean || schema.hasAdditionalProperties) return ''
 
-	if (!ignoreTryCatch && (normalize === true || normalize === 'exactMirror'))
+	if (normalize === true || normalize === 'exactMirror') {
+		if (ignoreTryCatch)
+			return `${name}=validator.${typeAlias}.Clean(${name})\n`
+
 		return (
 			`try{` +
 			`${name}=validator.${typeAlias}.Clean(${name})\n` +
-			`}catch{` +
-			// (schema.isOptional
-			// 	? ''
-			// 	: `throw new ValidationError('${type}',validator.${typeAlias},${name})`) +
-			`}`
+			`}catch{}`
 		)
+	}
 
 	if (normalize === 'typebox')
 		return `${name}=validator.${typeAlias}.Clean(${name})\n`
@@ -241,7 +242,7 @@ const composeValidationFactory = ({
 		for (const [status, value] of Object.entries(validator.response!)) {
 			code += `\ncase ${status}:if(${name} instanceof Response)break\n`
 
-			const noValidate = value.schema.noValidate === true
+			const noValidate = value.schema?.noValidate === true
 
 			const appliedCleaner = noValidate || hasSanitize
 
@@ -277,16 +278,12 @@ const composeValidationFactory = ({
 						: `throw new ValidationError('response',validator.response[${status}],${name})`) +
 					`}`
 			else {
+				if (!appliedCleaner) code += clean()
+
 				if (!noValidate)
 					code +=
-						`if(validator.response[${status}].Check(${name})===false){` +
-						'c.set.status=422\n' +
-						(applyErrorCleaner
-							? `${clean()}\n` +
-								`if(validator.response[${status}].Check(${name})===false)`
-							: '') +
-						`throw new ValidationError('response',validator.response[${status}],${name})` +
-						'}' +
+						`if(validator.response[${status}].Check(${name})===false)` +
+						`throw new ValidationError('response',validator.response[${status}],${name})\n` +
 						`c.set.status=${status}\n`
 			}
 
@@ -853,7 +850,7 @@ export const composeHandler = ({
 		`return ${hasSet ? 'mapResponse' : 'mapCompactResponse'}(${saveResponse}${r}${hasSet ? ',c.set' : ''}${mapResponseContext})\n`
 
 	const mapResponseContext =
-		maybeStream && adapter.mapResponseContext
+		maybeStream || adapter.mapResponseContext
 			? `,${adapter.mapResponseContext}`
 			: ''
 
@@ -1213,7 +1210,7 @@ export const composeHandler = ({
 			if (validator.headers.isOptional)
 				fnLiteral += `if(isNotEmpty(c.headers)){`
 
-			if (validator.body?.schema.noValidate !== true)
+			if (validator.body?.schema?.noValidate !== true)
 				fnLiteral +=
 					`if(validator.headers.Check(c.headers) === false){` +
 					validation.validate('headers') +
@@ -1245,7 +1242,7 @@ export const composeHandler = ({
 						fnLiteral += `c.params['${key}']??=${parsed}\n`
 				}
 
-			if (validator.params?.schema.noValidate !== true)
+			if (validator.params?.schema?.noValidate !== true)
 				fnLiteral +=
 					`if(validator.params.Check(c.params)===false){` +
 					validation.validate('params') +
@@ -1285,7 +1282,7 @@ export const composeHandler = ({
 			if (validator.query.isOptional)
 				fnLiteral += `if(isNotEmpty(c.query)){`
 
-			if (validator.query?.schema.noValidate !== true)
+			if (validator.query?.schema?.noValidate !== true)
 				fnLiteral +=
 					`if(validator.query.Check(c.query)===false){` +
 					validation.validate('query') +
@@ -1316,12 +1313,13 @@ export const composeHandler = ({
 						: undefined
 				)
 
+				const schema = unwrapImportSchema(validator.body.schema)
+
 				if (
 					!hasUnion &&
 					value &&
 					typeof value === 'object' &&
-					(hasType('File', validator.body.schema) ||
-						hasType('Files', validator.body.schema))
+					(hasType('File', schema) || hasType('Files', schema))
 				) {
 					hasNonUnionFileWithDefault = true
 
@@ -1355,7 +1353,7 @@ export const composeHandler = ({
 					normalize
 				})
 
-				if (validator.body?.schema.noValidate !== true) {
+				if (validator.body?.schema?.noValidate !== true) {
 					if (validator.body.isOptional)
 						fnLiteral +=
 							`if(isNotEmptyObject&&validator.body.Check(c.body)===false){` +
@@ -1375,7 +1373,7 @@ export const composeHandler = ({
 					normalize
 				})
 
-				if (validator.body?.schema.noValidate !== true) {
+				if (validator.body?.schema?.noValidate !== true) {
 					if (validator.body.isOptional)
 						fnLiteral +=
 							`if(isNotEmptyObject&&validator.body.Check(c.body)===false){` +
@@ -1456,14 +1454,20 @@ export const composeHandler = ({
 			} else if (
 				hasNonUnionFileWithDefault ||
 				(!hasUnion &&
-					(hasType('File', validator.body.schema) ||
-						hasType('Files', validator.body.schema)))
+					(hasType(
+						'File',
+						unwrapImportSchema(validator.body.schema)
+					) ||
+						hasType(
+							'Files',
+							unwrapImportSchema(validator.body.schema)
+						)))
 			) {
 				let validateFile = ''
 
 				let i = 0
 				for (const [k, v] of Object.entries(
-					validator.body.schema.properties
+					unwrapImportSchema(validator.body.schema).properties
 				) as [string, TSchema][]) {
 					if (
 						!v.extension ||
@@ -1517,7 +1521,7 @@ export const composeHandler = ({
 			if (cookieValidator.isOptional)
 				fnLiteral += `if(isNotEmpty(c.cookie)){`
 
-			if (validator.body?.schema.noValidate !== true) {
+			if (validator.body?.schema?.noValidate !== true) {
 				fnLiteral +=
 					`if(validator.cookie.Check(cookieValue)===false){` +
 					validation.validate('cookie', 'cookieValue') +
@@ -2034,7 +2038,7 @@ export const composeHandler = ({
 			'"use strict";\n' + fnLiteral
 		)({
 			handler,
-			hooks: lifeCycleToFn(hooks),
+			hooks: lifeCycleToFn({ ...hooks }),
 			validator: hasValidation ? validator : undefined,
 			// @ts-expect-error
 			handleError: app.handleError,
@@ -2215,6 +2219,7 @@ export const composeGeneralHandler = (app: AnyElysia) => {
 	let findDynamicRoute = router.http.root.WS
 		? `const route=router.find(r.method === "GET" && r.headers.get('upgrade')==='websocket'?'WS':r.method,p)`
 		: `const route=router.find(r.method,p)`
+
 	findDynamicRoute += router.http.root.ALL ? '??router.find("ALL",p)\n' : '\n'
 
 	findDynamicRoute += error404.code
@@ -2242,7 +2247,7 @@ export const composeGeneralHandler = (app: AnyElysia) => {
 			if ('WS' in methods)
 				switchMap +=
 					`if(r.headers.get('upgrade')==='websocket')` +
-					`return ht[${methods.WS}].handler(c)\n`
+					`return ht[${methods.WS}].composed(c)\n`
 
 			if ('GET' in methods)
 				switchMap += `return ht[${methods.GET}].composed(c)\n`
