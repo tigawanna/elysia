@@ -1,3 +1,5 @@
+import { TSchema } from '@sinclair/typebox'
+
 import type { ElysiaWS } from './index'
 import { WebSocketHandler } from './bun'
 
@@ -17,7 +19,8 @@ import {
 	Prettify,
 	RouteSchema,
 	SingletonBase,
-	TransformHandler
+	TransformHandler,
+	UnwrapSchema
 } from '../types'
 
 type TypedWebSocketMethod =

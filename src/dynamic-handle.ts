@@ -88,8 +88,15 @@ export const createDynamicHandler = (app: AnyElysia) => {
 					if (response) return (context.response = response)
 				}
 
+			const isWS =
+				request.method === 'GET' &&
+				request.headers.get('upgrade')?.toLowerCase() === 'websocket'
+
+			const methodKey = isWS ? 'WS' : request.method
+
 			const handler =
 				app.router.dynamic.find(request.method, path) ??
+				app.router.dynamic.find(methodKey, path) ??
 				app.router.dynamic.find('ALL', path)
 
 			if (!handler) throw new NotFoundError()
@@ -256,13 +263,19 @@ export const createDynamicHandler = (app: AnyElysia) => {
 			if (hooks.transform)
 				for (let i = 0; i < hooks.transform.length; i++) {
 					const hook = hooks.transform[i]
-					const operation = hook.fn(context)
+					let response = hook.fn(context)
 
-					if (hook.subType === 'derive') {
-						if (operation instanceof Promise)
-							Object.assign(context, await operation)
-						else Object.assign(context, operation)
-					} else if (operation instanceof Promise) await operation
+					if (response instanceof Promise) response = await response
+
+					// @ts-ignore jusut in case
+					if (response instanceof ElysiaCustomStatusResponse) {
+						const result = mapEarlyResponse(response, context.set)
+						if (result)
+							return (context.response = result) as Response
+					}
+
+					if (hook.subType === 'derive')
+						Object.assign(context, response)
 				}
 
 			if (validator) {
@@ -327,23 +340,18 @@ export const createDynamicHandler = (app: AnyElysia) => {
 				for (let i = 0; i < hooks.beforeHandle.length; i++) {
 					const hook = hooks.beforeHandle[i]
 					let response = hook.fn(context)
+					if (response instanceof Promise) response = await response
+
+					if (response instanceof ElysiaCustomStatusResponse) {
+						const result = mapEarlyResponse(response, context.set)
+						if (result)
+							return (context.response = result) as Response
+					}
 
 					if (hook.subType === 'resolve') {
-						if (response instanceof ElysiaCustomStatusResponse) {
-							const result = mapEarlyResponse(
-								response,
-								context.set
-							)
-							if (result)
-								return (context.response = result) as Response
-						}
-						if (response instanceof Promise)
-							Object.assign(context, await response)
-						else Object.assign(context, response)
-
+						Object.assign(context, response)
 						continue
-					} else if (response instanceof Promise)
-						response = await response
+					}
 
 					// `false` is a falsey value, check for undefined instead
 					if (response !== undefined) {

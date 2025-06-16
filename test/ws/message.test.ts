@@ -186,7 +186,7 @@ describe('WebSocket message', () => {
 		await wsClosed(ws)
 		app.stop()
 	})
-	
+
 	it('should parse objects', async () => {
 		const app = new Elysia()
 			.ws('/ws', {

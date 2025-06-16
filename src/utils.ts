@@ -18,7 +18,8 @@ import type {
 	Replace,
 	AfterResponseHandler,
 	SchemaValidator,
-	AnyLocalHook
+	AnyLocalHook,
+	SSEPayload
 } from './types'
 import { ElysiaFile } from './universal/file'
 
@@ -170,6 +171,16 @@ export const mergeSchemaValidator = (
 	a?: SchemaValidator | null,
 	b?: SchemaValidator | null
 ): SchemaValidator => {
+	if (!a && !b)
+		return {
+			body: undefined,
+			headers: undefined,
+			params: undefined,
+			query: undefined,
+			cookie: undefined,
+			response: undefined
+		}
+
 	return {
 		body: b?.body ?? a?.body,
 		headers: b?.headers ?? a?.headers,
@@ -922,8 +933,23 @@ export type redirect = typeof redirect
 export const ELYSIA_FORM_DATA = Symbol('ElysiaFormData')
 export type ELYSIA_FORM_DATA = typeof ELYSIA_FORM_DATA
 
+type IsTuple<T> = T extends readonly any[]
+	? number extends T['length']
+		? false
+		: true
+	: false
+
 export type ElysiaFormData<T extends Record<keyof any, unknown>> = FormData & {
-	[ELYSIA_FORM_DATA]: Replace<T, Blob | ElysiaFile, File>
+	[ELYSIA_FORM_DATA]: Replace<T, Blob | ElysiaFile, File> extends infer A
+		? {
+				[key in keyof A]: IsTuple<A[key]> extends true
+					? // @ts-ignore Trust me bro
+						A[key][number] extends Blob | ElysiaFile
+						? File[]
+						: A[key]
+					: A[key]
+			}
+		: T
 }
 
 export const ELYSIA_REQUEST_ID = Symbol('ElysiaRequestId')
@@ -978,6 +1004,8 @@ export const randomId = () => {
 export const deduplicateChecksum = <T extends Function>(
 	array: HookContainer<T>[]
 ): HookContainer<T>[] => {
+	if (!array.length) return []
+
 	const hashes: number[] = []
 
 	for (let i = 0; i < array.length; i++) {
@@ -1079,15 +1107,9 @@ export const getLoosePath = (path: string) => {
 export const isNotEmpty = (obj?: Object) => {
 	if (!obj) return false
 
-	for (const x in obj) return true
+	for (const _ in obj) return true
 
 	return false
-}
-
-const isEmptyHookProperty = (prop: unknown) => {
-	if (Array.isArray(prop)) return prop.length === 0
-
-	return !prop
 }
 
 export const encodePath = (path: string, { dynamic = false } = {}) => {
@@ -1096,4 +1118,47 @@ export const encodePath = (path: string, { dynamic = false } = {}) => {
 	if (dynamic) encoded = encoded.replace(/%3A/g, ':').replace(/%3F/g, '?')
 
 	return encoded
+}
+
+export const supportPerMethodInlineHandler = (() => {
+	if (typeof Bun === 'undefined') return true
+
+	const semver = Bun.version.split('.')
+	if (+semver[0] < 1 || +semver[1] < 2 || +semver[2] < 14) return false
+
+	return true
+})()
+
+export const sse = (
+	payload: string | SSEPayload
+): SSEPayload & { toStream(): string } => {
+	if (typeof payload === 'string')
+		payload = {
+			data: payload
+		}
+
+	if (payload.id === undefined) payload.id = randomId()
+
+	// @ts-ignore
+	payload.toStream = () => {
+		let payloadString = ''
+
+		if (payload.id !== undefined && payload.id !== null)
+			payloadString += `id: ${payload.id}\n`
+		if (payload.event) payloadString += `event: ${payload.event}\n`
+		if (payload.retry !== undefined)
+			payloadString += `retry: ${payload.retry}\n`
+
+		if (payload.data === null) payloadString += 'data: null\n'
+		else if (typeof payload.data === 'string')
+			payloadString += `data: ${payload.data}\n`
+		else if (typeof payload.data === 'object')
+			payloadString += `data: ${JSON.stringify(payload.data)}\n`
+
+		if (payloadString) payloadString += '\n'
+
+		return payloadString
+	}
+
+	return payload as any
 }

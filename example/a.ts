@@ -1,9 +1,17 @@
-import { Elysia, t } from '../src'
+import { Elysia, file, form, t } from '../src'
 
 const app = new Elysia()
-	.get('/', ({ request }) => {
-		request.url
+	.ws('/ws', {
+		upgradeData: t.Object({
+			hello: t.String()
+		}),
+		beforeHandle() {
+			return {
+				hello: 'world'
+			}
+		},
+		open(ws, data) {
+			ws.send(data.hello)
+		}
 	})
 	.listen(3000)
-
-// console.log(app.routes[0].compile().toString())
